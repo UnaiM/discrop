@@ -1,0 +1,10 @@
+# Python virtual environment
+/bin/
+/include/
+/lib/
+/lib64/
+/Scripts/
+/pyvenv.cfg
+
+# Python compiled files
+*.pyc
