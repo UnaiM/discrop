@@ -1,6 +1,15 @@
+import asyncio
 import math
+import os.path
+import sys
+import time
+import threading
 
 import obspython as obs
+
+script_path_ = os.path.dirname(__file__) # script_path is part of the OBS script interface.
+sys.path.append(os.path.join(script_path_, 'lib', 'site-packages'))
+import discord
 
 SLOTS = 10 # Seems to be the maximum people allowed.
 
@@ -13,9 +22,89 @@ CALLER_ASPECT = 16 / 9
 CALLER_SPACING = 8
 CALLER_BORDER = 3 # Inwards border when caller is talking.
 
-source = None
-order = []
+client = None
+thread = None
+channels = []
 full_screen = False
+show_nonvideo_participants = False
+discord_source = None
+nicknames = ()
+
+
+class Client(discord.Client):
+
+    def __init__(self):
+        super().__init__(intents=discord.Intents(guilds=True, members=True, voice_states=True))
+        self.audio = []
+        self.video = []
+        self._audio = set()
+        self._video = set()
+        self._channel = None
+
+    @property
+    def channel(self):
+        return self._channel
+
+    @channel.setter
+    def channel(self, channel):
+        if (channel and not self._channel) or (self.channel and channel != self._channel.id):
+            self._audio.clear()
+            self._video.clear()
+            self._channel = self.get_channel(channel)
+            if self._channel:
+                for member in self._channel.members:
+                    if member.voice.self_video:
+                        self._video.add(member.display_name)
+                    else:
+                        self._audio.add(member.display_name)
+            else:
+                self._channel = None
+            self.sort()
+
+    async def on_ready(self):
+        for guild in sorted(self.guilds, key=lambda x: x.name.lower()):
+            for channel in sorted(guild.channels, key=lambda x: x.position):
+                if isinstance(channel, discord.VoiceChannel):
+                    channels.append((guild.name + ' -> ' + channel.name, channel.id))
+
+    async def on_member_update(self, before, after):
+        if not self.channel:
+            return
+        if before.display_name != after.display_name and (before.voice and before.voice.channel == self.channel) or (after.voice and after.voice.channel == self.channel):
+            if before.display_name in self._audio:
+                self._audio.remove(before.display_name)
+                self._audio.add(after.display_name)
+            elif before.display_name in self._video:
+                self._video.remove(before.display_name)
+                self._video.add(after.display_name)
+            self.sort()
+
+    async def on_voice_state_update(self, member, before, after):
+        if not self.channel:
+            return
+        if before.channel == self.channel and after.channel == self.channel:
+            if before.self_video and not after.self_video:
+                self._video.discard(member.display_name)
+                self._audio.add(member.display_name)
+            if not before.self_video and after.self_video:
+                self._audio.discard(member.display_name)
+                self._video.add(member.display_name)
+        elif before.channel == self.channel:
+            self._audio.discard(member.display_name)
+            self._video.discard(member.display_name)
+        elif after.channel == self.channel:
+            if after.self_video:
+                self._video.add(member.display_name)
+            else:
+                self._audio.add(member.display_name)
+        else:
+            return
+        self.sort()
+
+    def sort(self):
+        # Discord sorts ‘ ’ before EOF, e.g. ‘foo bar’ > ‘foo’. Python doesn’t, but we can leverage the fact that ‘ ’ goes right before ‘!’.
+        self.audio = sorted(self._audio, key=lambda x: x.lower() + '!')
+        self.video = sorted(self._video, key=lambda x: x.lower() + '!')
 
 
 def script_description(): # OBS script interface.
@@ -23,27 +112,32 @@ def script_description(): # OBS script interface.
 
 
 def script_load(settings): # OBS script interface.
-    pass # TODO.
+    global client
+    global thread
+
+    if asyncio.get_event_loop().is_closed():
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+    client = Client()
+    with open(os.path.join(script_path_, '.bot_token')) as f: # script_path() is part of the OBS script interface.
+        thread = threading.Thread(target=client.run, args=(f.read().rstrip(),))
+        thread.start()
 
 
 def script_update(settings): # OBS script interface.
-    global source
-    global order
     global full_screen
+    global show_nonvideo_participants
+    global discord_source
+    global nicknames
 
-    obs.obs_source_release(source) # Doesn’t error even if source == None.
-    source = obs.obs_get_source_by_name(obs.obs_data_get_string(settings, 'discord_source'))
-
-    # Get caller order differences between Discord and OBS.
-    data = {}
-    for i in range(SLOTS):
-        name = obs.obs_data_get_string(settings, f'nickname{i}').lower()
-        if name.rstrip():# and obs.obs_data_get_bool(settings, f'has_video{i}'):
-            data[i] = name
-    # Discord sorts ‘ ’ before EOF, e.g. ‘foo bar’ > ‘foo’. Python doesn’t, but we can leverage the fact that ‘ ’ goes right before ‘!’.
-    order = sorted(data, key=lambda x: data[x] + '!')
-
+    while not client.is_ready():
+        time.sleep(0.1)
+    client.channel = obs.obs_data_get_int(settings, 'voice_channel')
     full_screen = obs.obs_data_get_bool(settings, 'full_screen')
+    show_nonvideo_participants = obs.obs_data_get_bool(settings, 'show_nonvideo_participants')
+    obs.obs_source_release(discord_source) # Doesn’t error even if discord_source == None.
+    discord_source = obs.obs_get_source_by_name(obs.obs_data_get_string(settings, 'discord_source'))
+    nicknames = tuple(obs.obs_data_get_string(settings, f'nickname{i}') for i in range(SLOTS))
 
 
 def script_properties(): # OBS script interface.
@@ -75,9 +169,13 @@ def script_properties(): # OBS script interface.
   <li>Fill the text fields with the <strong>exact</strong> Discord server nicknames of everyone that you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
 </ol>''')
 
-    p = obs.obs_properties_add_list(grp, 'voice_channel', 'Voice channel', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
+    p = obs.obs_properties_add_list(grp, 'voice_channel', 'Voice channel', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
     obs.obs_property_set_long_description(p, '<p>Discord server and voice/video channel where the call is happening.</p>')
-    obs.obs_property_list_add_string(p, '(Loading…)', None)
+    while not client.is_ready():
+        time.sleep(0.1)
+    for label, cid in channels:
+        obs.obs_property_list_add_int(p, label, cid)
+
     p = obs.obs_properties_add_bool(grp, 'full_screen', 'Full-screen')
     obs.obs_property_set_long_description(p, '<p>Whether the Discord call window is in <em>Full Screen</em> mode</p>')
     p = obs.obs_properties_add_bool(grp, 'show_nonvideo_participants', 'Show Non-Video Participants')
@@ -108,17 +206,21 @@ def script_properties(): # OBS script interface.
 
 def script_tick(seconds): # OBS script interface.
 
-    # Get Discord call window size.
     # TODO: Why are these 0 when no nickname is filled up?
-    source_width = obs.obs_source_get_width(source)
-    source_height = obs.obs_source_get_height(source)
+    source_width = obs.obs_source_get_width(discord_source)
+    source_height = obs.obs_source_get_height(discord_source)
 
     margin_top = MARGIN_TOP
     if not full_screen:
         margin_top = margin_top + TITLE_BAR
 
     # Get Discord call layout distribution and caller size.
-    count = max(2, len(order)) # When there’s only one caller, Discord adds a call to action that occupies the same space as a second caller.
+    nicks = [x for x in client.video] # Mutability and shiz.
+    if show_nonvideo_participants:
+        nicks += client.audio
+    count = len(nicks)
+    if count == 1 and (not client.audio or not client.video and show_nonvideo_participants):
+        count = 2 # Discord adds a call to action that occupies the same space as a second caller.
     rows = None
     cols = None
     width = 0
@@ -135,6 +237,7 @@ def script_tick(seconds): # OBS script interface.
             for r in range(1, count+1):
                 c = math.ceil(count / r)
                 # Valid row/column combinations are those where adding a row would remove columns or vice-versa, e.g. you could arrange 4 callers in 2 rows as 3+1, but what’s the point when you can do 2+2.
+                # FIXME: Turns out this isn’t true! ARRRRRGRGGGGGGGGGH Discord, why??!!????! It makes no sense!
                 if not last or c < last:
                     last = c
                     w = (totalw - CALLER_SPACING * (c - 1)) / c
@@ -148,37 +251,34 @@ def script_tick(seconds): # OBS script interface.
                         width = w
                         height = h
                         wide = wi
+            if rows:
+                # If the window is wider or taller than the callers fit in, Discord will center them as a whole.
+                inner_width = (width * cols + CALLER_SPACING * (cols - 1))
+                if wide: # Wider than needed, therefore center horizontally.
+                    offsetx = (totalw - inner_width) / 2
+                else: # Taller than needed, therefore center vertically.
+                    height = width / CALLER_ASPECT # We compared using widths only before, so height needs to be adjusted.
+                    offsety = (totalh - (height * rows + CALLER_SPACING * (rows - 1))) / 2
 
-            # If the window is wider or taller than the callers fit in, Discord will center them as a whole.
-            inner_width = (width * cols + CALLER_SPACING * (cols - 1))
-            if wide: # Wider than needed, therefore center horizontally.
-                offsetx = (totalw - inner_width) / 2
-            else: # Taller than needed, therefore center vertically.
-                height = width / CALLER_ASPECT # We compared using widths only before, so height needs to be adjusted.
-                offsety = (totalh - (height * rows + CALLER_SPACING * (rows - 1))) / 2
-
-            # If last row contains fewer callers than columns, Discord will center it.
-            offset_last = count % cols
-            if offset_last > 0:
-                offset_last = (inner_width - (width * offset_last + CALLER_SPACING * (offset_last - 1))) / 2
+                # If last row contains fewer callers than columns, Discord will center it.
+                offset_last = count % cols
+                if offset_last > 0:
+                    offset_last = (inner_width - (width * offset_last + CALLER_SPACING * (offset_last - 1))) / 2
 
     # Apply necessary changes to relevant scene items.
     scene_sources = obs.obs_frontend_get_scenes()
     for scene_src in scene_sources:
         scene = obs.obs_scene_from_source(scene_src) # Shouldn’t be released.
         items = obs.obs_scene_enum_items(scene)
-        j = 0
-        for i in reversed(range(len(items))):
-            item = items[i]
-            if obs.obs_sceneitem_get_source(item) == source: # Shouldn’t be released.
-                visible = False
-                index = None
-                for k, v in enumerate(order):
-                    if j == v:
-                        visible = True
-                        index = k
-                        break
-                j += 1
+        i = 0
+        for item in reversed(items):
+            if obs.obs_sceneitem_get_source(item) == discord_source: # Shouldn’t be released.
+                visible = True
+                try:
+                    index = nicks.index(nicknames[i])
+                except (IndexError, ValueError):
+                    visible = False
+                i += 1
                 obs.obs_sceneitem_set_visible(item, visible)
                 if visible:
                     obs.obs_sceneitem_set_bounds_type(item, obs.OBS_BOUNDS_SCALE_OUTER)
@@ -212,6 +312,11 @@ def script_tick(seconds): # OBS script interface.
                         obs.obs_sceneitem_set_crop(item, crop)
         obs.sceneitem_list_release(items)
     obs.source_list_release(scene_sources)
+
+
+def script_unload(): # OBS script interface.
+    client.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(client.close()))
+    thread.join()
 
 
 def ordinal(n):

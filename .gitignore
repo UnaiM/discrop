@@ -1,3 +1,6 @@
+# Secret access token for our bot
+/.bot_token
+
 # Python virtual environment
 /bin/
 /include/
