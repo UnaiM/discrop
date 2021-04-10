@@ -169,7 +169,7 @@ def script_properties(): # OBS script interface.
 </ol>''')
 
     p = obs.obs_properties_add_list(grp, 'voice_channel', 'Voice channel', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
-    obs.obs_property_set_modified_callback(p, voice_channel_modified)
+    obs.obs_property_set_modified_callback(p, populate_participants)
     obs.obs_property_set_long_description(p, '<p>Discord server and voice/video channel where the call is happening.</p>')
     while not client.is_ready():
         time.sleep(0.1)
@@ -196,12 +196,14 @@ def script_properties(): # OBS script interface.
     obs.obs_properties_add_group(props, 'general', 'General', obs.OBS_GROUP_NORMAL, grp)
 
     grp = obs.obs_properties_create()
+    p = obs.obs_properties_add_button(grp, 'refresh_names', 'Refresh names', populate_participants)
+    obs.obs_property_set_long_description(p, '<p>Rebuild the participant lists below. Useful when there have been nickname changes, or someone has joined the server. Don’t worry— it won’t reset each choice, unless a selected participant left the server.</p>')
     for i in range(SLOTS):
         p = obs.obs_properties_add_list(grp, f'participant{i}', None, obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
         obs.obs_property_set_long_description(p, '<p>Participant to appear at the ' + ordinal(i + 1) + ' capture item from the top of the scene</p>')
     obs.obs_properties_add_group(props, 'participant_layout', 'Participant layout', obs.OBS_GROUP_NORMAL, grp)
 
-    voice_channel_modified(props, p, obs.obs_data_create())
+    populate_participants(props)
 
     return props
 
@@ -320,7 +322,7 @@ def script_unload(): # OBS script interface.
     thread.join()
 
 
-def voice_channel_modified(props, p, settings):
+def populate_participants(props, p=None, settings=None):
     if not client.channel:
         return False
     for i in range(SLOTS):
