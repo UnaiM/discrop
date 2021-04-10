@@ -16,8 +16,8 @@ SLOTS = 10 # Seems to be the maximum people allowed.
 # Discord call window measurements.
 TITLE_BAR = 22
 MARGIN_TOP = 64.5 # Half values since they fluctuate.
-MARGIN_SIDES = 8.5
-MARGIN_BTM = 71.5
+MARGIN_SIDES = 8.25 # Don’t ask why, but .25 here seems to be even more acurate.
+MARGIN_BTM = 71.25 # Don’t ask why, but .25 here seems to be even more acurate.
 CALLER_ASPECT = 16 / 9
 CALLER_SPACING = 8
 CALLER_BORDER = 3 # Inwards border when caller is talking.
