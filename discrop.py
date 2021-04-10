@@ -211,7 +211,7 @@ def script_tick(seconds): # OBS script interface.
     if not client:
         return
 
-    # TODO: Why are these 0 when no nickname is filled up?
+    # NOTE: These are 0 when the source isn’t visible at all in the current scene. Not that it matters, but I was just weirded out by it until I got it.
     source_width = obs.obs_source_get_width(discord_source)
     source_height = obs.obs_source_get_height(discord_source)
 
