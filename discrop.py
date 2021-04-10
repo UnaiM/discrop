@@ -28,7 +28,7 @@ channels = []
 full_screen = False
 show_nonvideo_participants = False
 discord_source = None
-nicknames = ()
+participants = ()
 
 
 class Client(discord.Client):
@@ -37,8 +37,8 @@ class Client(discord.Client):
         super().__init__(intents=discord.Intents(guilds=True, members=True, voice_states=True))
         self.audio = []
         self.video = []
-        self._audio = set()
-        self._video = set()
+        self._audio = {}
+        self._video = {}
         self._channel = None
 
     @property
@@ -54,9 +54,9 @@ class Client(discord.Client):
             if self._channel:
                 for member in self._channel.members:
                     if member.voice.self_video:
-                        self._video.add(member.display_name)
+                        self._video[member.id] = member.display_name
                     else:
-                        self._audio.add(member.display_name)
+                        self._audio[member.id] = member.display_name
             else:
                 self._channel = None
             self.sort()
@@ -71,12 +71,11 @@ class Client(discord.Client):
         if not self.channel:
             return
         if before.display_name != after.display_name and (before.voice and before.voice.channel == self.channel) or (after.voice and after.voice.channel == self.channel):
-            if before.display_name in self._audio:
-                self._audio.remove(before.display_name)
-                self._audio.add(after.display_name)
-            elif before.display_name in self._video:
-                self._video.remove(before.display_name)
-                self._video.add(after.display_name)
+            # before.id == after.id (duh), so it doesn’t matter which one we use.
+            if before.id in self._audio:
+                self._audio[after.id] = after.display_name
+            elif before.id in self._video:
+                self._video[after.id] = after.display_name
             self.sort()
 
     async def on_voice_state_update(self, member, before, after):
@@ -84,27 +83,27 @@ class Client(discord.Client):
             return
         if before.channel == self.channel and after.channel == self.channel:
             if before.self_video and not after.self_video:
-                self._video.discard(member.display_name)
-                self._audio.add(member.display_name)
+                self._video.pop(member.id, None)
+                self._audio[member.id] = member.display_name
             if not before.self_video and after.self_video:
-                self._audio.discard(member.display_name)
-                self._video.add(member.display_name)
+                self._audio.pop(member.id, None)
+                self._video[member.id] = member.display_name
         elif before.channel == self.channel:
-            self._audio.discard(member.display_name)
-            self._video.discard(member.display_name)
+            self._audio.pop(member.id, None)
+            self._video.pop(member.id, None)
         elif after.channel == self.channel:
             if after.self_video:
-                self._video.add(member.display_name)
+                self._video[member.id] = member.display_name
             else:
-                self._audio.add(member.display_name)
+                self._audio[member.id] = member.display_name
         else:
             return
         self.sort()
 
     def sort(self):
         # Discord sorts ‘ ’ before EOF, e.g. ‘foo bar’ > ‘foo’. Python doesn’t, but we can leverage the fact that ‘ ’ goes right before ‘!’.
-        self.audio = sorted(self._audio, key=lambda x: x.lower() + '!')
-        self.video = sorted(self._video, key=lambda x: x.lower() + '!')
+        self.audio = sorted(self._audio, key=lambda x: self._audio[x].lower() + '!')
+        self.video = sorted(self._video, key=lambda x: self._video[x].lower() + '!')
 
 
 def script_description(): # OBS script interface.
@@ -128,7 +127,7 @@ def script_update(settings): # OBS script interface.
     global full_screen
     global show_nonvideo_participants
     global discord_source
-    global nicknames
+    global participants
 
     while not client.is_ready():
         time.sleep(0.1)
@@ -137,7 +136,7 @@ def script_update(settings): # OBS script interface.
     show_nonvideo_participants = obs.obs_data_get_bool(settings, 'show_nonvideo_participants')
     obs.obs_source_release(discord_source) # Doesn’t error even if discord_source == None.
     discord_source = obs.obs_get_source_by_name(obs.obs_data_get_string(settings, 'discord_source'))
-    nicknames = tuple(obs.obs_data_get_string(settings, f'nickname{i}') for i in range(SLOTS))
+    participants = tuple(obs.obs_data_get_int(settings, f'participant{i}') for i in range(SLOTS))
 
 
 def script_properties(): # OBS script interface.
@@ -158,7 +157,7 @@ def script_properties(): # OBS script interface.
   <li>Create a <em>Window Capture</em> source and set it to capture your Discord call.</li>
   <li>Move and crop it until it’s the size and position you want a single caller’s video to be in the scene— don’t pay any attention to which area of the Discord call it shows, as that’s what this script does for you.</li>
   <li>Duplicate it <strong>(always as reference)</strong> and tweak it for every other caller, across scenes, etc.</li>
-  <li>Make sure the order of all Discord items in the <em>Sources</em> panel matches across your scenes, with the order in which you want the nicknames to show up (see next section).</li>
+  <li>Make sure the order of all Discord items in the <em>Sources</em> panel matches across your scenes, with the order in which you want the participants to show up (see next section).</li>
 </ol>
 
 <h3>Using this script</h3>
@@ -166,10 +165,11 @@ def script_properties(): # OBS script interface.
   <li>Open the dropdown menu below, and pick the voice channel you’re in.</strong></li>
   <li>Tick the <em>Full Screen</li> and <em>Show Non-Video Participants</em> checkboxes according to the state of your Discord call (on Discord, <em>Show Non-Video Participants</em> is located under the three dots button at the top right of the call window).</li>
   <li>Open the next dropdown menu, and pick the source that’s capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick!</strong></li>
-  <li>Fill the text fields with the <strong>exact</strong> Discord server nicknames of everyone that you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
+  <li>Choose every participant you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
 </ol>''')
 
     p = obs.obs_properties_add_list(grp, 'voice_channel', 'Voice channel', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
+    obs.obs_property_set_modified_callback(p, voice_channel_modified)
     obs.obs_property_set_long_description(p, '<p>Discord server and voice/video channel where the call is happening.</p>')
     while not client.is_ready():
         time.sleep(0.1)
@@ -197,9 +197,11 @@ def script_properties(): # OBS script interface.
 
     grp = obs.obs_properties_create()
     for i in range(SLOTS):
-        p = obs.obs_properties_add_text(grp, f'nickname{i}', None, obs.OBS_TEXT_DEFAULT)
-        obs.obs_property_set_long_description(p, '<p>Discord server nickname of the participant at the ' + ordinal(i + 1) + ' capture item from the top of the scene</p>')
-    obs.obs_properties_add_group(props, 'nicknames', 'Nicknames', obs.OBS_GROUP_NORMAL, grp)
+        p = obs.obs_properties_add_list(grp, f'participant{i}', None, obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
+        obs.obs_property_set_long_description(p, '<p>Participant to appear at the ' + ordinal(i + 1) + ' capture item from the top of the scene</p>')
+    obs.obs_properties_add_group(props, 'participant_layout', 'Participant layout', obs.OBS_GROUP_NORMAL, grp)
+
+    voice_channel_modified(props, p, obs.obs_data_create())
 
     return props
 
@@ -218,10 +220,10 @@ def script_tick(seconds): # OBS script interface.
         margin_top = margin_top + TITLE_BAR
 
     # Get Discord call layout distribution and caller size.
-    nicks = [x for x in client.video] # Mutability and shiz.
+    people = [x for x in client.video] # Mutability and shiz.
     if show_nonvideo_participants:
-        nicks += client.audio
-    count = len(nicks)
+        people += client.audio
+    count = len(people)
     if count == 1 and (not client.audio or not client.video and show_nonvideo_participants):
         count = 2 # Discord adds a call to action that occupies the same space as a second caller.
     rows = None
@@ -278,7 +280,7 @@ def script_tick(seconds): # OBS script interface.
             if obs.obs_sceneitem_get_source(item) == discord_source: # Shouldn’t be released.
                 visible = True
                 try:
-                    index = nicks.index(nicknames[i])
+                    index = people.index(participants[i])
                 except (IndexError, ValueError):
                     visible = False
                 i += 1
@@ -320,6 +322,22 @@ def script_tick(seconds): # OBS script interface.
 def script_unload(): # OBS script interface.
     client.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(client.close()))
     thread.join()
+
+
+def voice_channel_modified(props, p, settings):
+    if not client.channel:
+        return False
+    for i in range(SLOTS):
+        p = obs.obs_properties_get(props, f'participant{i}')
+        obs.obs_property_list_clear(p)
+        obs.obs_property_list_add_int(p, '(none)', -1)
+        for nick, name, disc, uid in ((x.nick, x.name, x.discriminator, x.id) for x in sorted(client.channel.guild.members, key=lambda x: x.display_name.lower() + '!') if x != client.user):
+            label = (nick or name) + ' ('
+            if nick:
+                label += name + ' '
+            label += f'#{disc})'
+            obs.obs_property_list_add_int(p, label, uid)
+    return True
 
 
 def ordinal(n):
