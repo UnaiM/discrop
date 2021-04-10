@@ -157,7 +157,7 @@ def script_properties(): # OBS script interface.
 <ol>
   <li>Open the dropdown menu below, and pick the voice channel you’re in.</strong></li>
   <li>Tick the <em>Full Screen</li> and <em>Show Non-Video Participants</em> checkboxes according to the state of your Discord call (on Discord, <em>Show Non-Video Participants</em> is located under the three dots button at the top right of the call window).</li>
-  <li>Open the next dropdown menu, and pick the source that’s capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick!</strong></li>
+  <li>Open the next dropdown menu, and pick the source that’s capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick! Moreover, the script knows which items to modify based on their source’s name alone, so please avoid changing your sources’ names to prevent unexpected behaviour.</strong></li>
   <li>Choose every participant you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
 </ol>''')
 
@@ -174,15 +174,8 @@ def script_properties(): # OBS script interface.
 
     p = obs.obs_properties_add_list(grp, 'discord_source', 'Discord source', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
     obs.obs_property_set_long_description(p, '<p>Source that is capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick!</strong></p>')
-    obs.obs_property_list_add_string(p, '(none)', None)
-    sources = obs.obs_enum_sources()
-    labels = {}
-    for src in sources:
-        n = obs.obs_source_get_name(src)
-        labels[n] = n + ' (' + obs.obs_source_get_display_name(obs.obs_source_get_id(src)) + ')'
-    obs.source_list_release(sources)
-    for n in sorted(labels, key=lambda x: x.lower()):
-        obs.obs_property_list_add_string(p, labels[n], n)
+    p = obs.obs_properties_add_button(grp, 'refresh_sources', 'Refresh sources', populate_sources)
+    obs.obs_property_set_long_description(p, '<p>Rebuild the list of sources above. Useful for when you’ve made major changes to your scenes. This won’t reset your choice, unless it’s no longer available.</p>')
 
     obs.obs_properties_add_group(props, 'general', 'General', obs.OBS_GROUP_NORMAL, grp)
 
@@ -194,6 +187,7 @@ def script_properties(): # OBS script interface.
         obs.obs_property_set_long_description(p, '<p>Participant to appear at the ' + ordinal(i + 1) + ' capture item from the top of the scene</p>')
     obs.obs_properties_add_group(props, 'participant_layout', 'Participant layout', obs.OBS_GROUP_NORMAL, grp)
 
+    populate_sources(props)
     while not client.is_ready():
         time.sleep(0.1)
     populate_channels(props)
@@ -323,6 +317,21 @@ def populate_channels(props, p=None, settings=None):
         for channel in sorted(guild.channels, key=lambda x: x.position):
             if isinstance(channel, discord.VoiceChannel):
                 obs.obs_property_list_add_int(p, guild.name + ' -> ' + channel.name, channel.id)
+    return True
+
+
+def populate_sources(props, p=None, settings=None):
+    p = obs.obs_properties_get(props, 'discord_source')
+    obs.obs_property_list_clear(p)
+    obs.obs_property_list_add_string(p, '(none)', '')
+    sources = obs.obs_enum_sources()
+    labels = {}
+    for src in sources:
+        n = obs.obs_source_get_name(src)
+        labels[n] = n + ' (' + obs.obs_source_get_display_name(obs.obs_source_get_id(src)) + ')'
+    obs.source_list_release(sources)
+    for n in sorted(labels, key=lambda x: x.lower()):
+        obs.obs_property_list_add_string(p, labels[n], n)
     return True
 
 
