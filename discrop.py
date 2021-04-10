@@ -24,7 +24,6 @@ CALLER_BORDER = 3 # Inwards border when caller is talking.
 
 client = None
 thread = None
-channels = []
 full_screen = False
 show_nonvideo_participants = False
 discord_source = None
@@ -60,12 +59,6 @@ class Client(discord.Client):
             else:
                 self._channel = None
             self.sort()
-
-    async def on_ready(self):
-        for guild in sorted(self.guilds, key=lambda x: x.name.lower()):
-            for channel in sorted(guild.channels, key=lambda x: x.position):
-                if isinstance(channel, discord.VoiceChannel):
-                    channels.append((guild.name + ' -> ' + channel.name, channel.id))
 
     async def on_member_update(self, before, after):
         if not self.channel:
@@ -171,10 +164,8 @@ def script_properties(): # OBS script interface.
     p = obs.obs_properties_add_list(grp, 'voice_channel', 'Voice channel', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
     obs.obs_property_set_modified_callback(p, populate_participants)
     obs.obs_property_set_long_description(p, '<p>Discord server and voice/video channel where the call is happening.</p>')
-    while not client.is_ready():
-        time.sleep(0.1)
-    for label, cid in channels:
-        obs.obs_property_list_add_int(p, label, cid)
+    p = obs.obs_properties_add_button(grp, 'refresh_channels', 'Refresh channels', populate_channels)
+    obs.obs_property_set_long_description(p, '<p>Rebuild the list of channels above. Useful for when you’ve just invited the bot to a server, or a new channel has been created in one of the servers it’s invited to. Don’t worry— it won’t reset your choice, unless it’s no longer available.</p>')
 
     p = obs.obs_properties_add_bool(grp, 'full_screen', 'Full-screen')
     obs.obs_property_set_long_description(p, '<p>Whether the Discord call window is in <em>Full Screen</em> mode</p>')
@@ -203,6 +194,9 @@ def script_properties(): # OBS script interface.
         obs.obs_property_set_long_description(p, '<p>Participant to appear at the ' + ordinal(i + 1) + ' capture item from the top of the scene</p>')
     obs.obs_properties_add_group(props, 'participant_layout', 'Participant layout', obs.OBS_GROUP_NORMAL, grp)
 
+    while not client.is_ready():
+        time.sleep(0.1)
+    populate_channels(props)
     populate_participants(props)
 
     return props
@@ -320,6 +314,16 @@ def script_tick(seconds): # OBS script interface.
 def script_unload(): # OBS script interface.
     client.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(client.close()))
     thread.join()
+
+
+def populate_channels(props, p=None, settings=None):
+    p = obs.obs_properties_get(props, 'voice_channel')
+    obs.obs_property_list_clear(p)
+    for guild in sorted(client.guilds, key=lambda x: x.name.lower()):
+        for channel in sorted(guild.channels, key=lambda x: x.position):
+            if isinstance(channel, discord.VoiceChannel):
+                obs.obs_property_list_add_int(p, guild.name + ' -> ' + channel.name, channel.id)
+    return True
 
 
 def populate_participants(props, p=None, settings=None):
