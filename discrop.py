@@ -206,6 +206,9 @@ def script_properties(): # OBS script interface.
 
 def script_tick(seconds): # OBS script interface.
 
+    if not client:
+        return
+
     # TODO: Why are these 0 when no nickname is filled up?
     source_width = obs.obs_source_get_width(discord_source)
     source_height = obs.obs_source_get_height(discord_source)
