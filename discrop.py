@@ -238,24 +238,20 @@ def script_tick(seconds): # OBS script interface.
         totalh = source_height - margin_top - MARGIN_BTM
         if totalw > 0 and totalh > 0:
             wide = None
-            last = None
-            for r in range(1, count+1):
-                c = math.ceil(count / r)
-                # Valid row/column combinations are those where adding a row would remove columns or vice-versa, e.g. you could arrange 4 callers in 2 rows as 3+1, but what’s the point when you can do 2+2.
-                # FIXME: Turns out this isn’t true! ARRRRRGRGGGGGGGGGH Discord, why??!!????! It makes no sense!
-                if not last or c < last:
-                    last = c
-                    w = (totalw - CALLER_SPACING * (c - 1)) / c
-                    h = (totalh - CALLER_SPACING * (r - 1)) / r
-                    wi = w / h > CALLER_ASPECT
-                    if wi:
-                        w = h * CALLER_ASPECT
-                    if w > width:
-                        rows = r
-                        cols = c
-                        width = w
-                        height = h
-                        wide = wi
+            # Discord packs the callers in as many columns as possible, unless their videos appear bigger with fewer columns.
+            for c in reversed(range(1, count+1)):
+                r = math.ceil(count / c)
+                w = (totalw - CALLER_SPACING * (c - 1)) / c
+                h = (totalh - CALLER_SPACING * (r - 1)) / r
+                wi = w / h > CALLER_ASPECT
+                if wi:
+                    w = h * CALLER_ASPECT
+                if w > width:
+                    rows = r
+                    cols = c
+                    width = w
+                    height = h
+                    wide = wi
             if rows:
                 # If the window is wider or taller than the callers fit in, Discord will center them as a whole.
                 inner_width = (width * cols + CALLER_SPACING * (cols - 1))
