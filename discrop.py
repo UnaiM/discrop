@@ -271,36 +271,44 @@ def script_tick(seconds): # OBS script interface.
                     visible = False
                 i += 1
                 obs.obs_sceneitem_set_visible(item, visible)
-                if visible:
+                if visible and rows:
+                    crop = obs.obs_sceneitem_crop()
+                    obs.obs_sceneitem_get_crop(item, crop)
+                    scale = obs.vec2()
+                    obs.obs_sceneitem_get_scale(item, scale)
+                    bounds = obs.vec2()
+                    obs.obs_sceneitem_get_bounds(item, bounds)
+
+                    # If item was set to not use a bounding box policy, calculate it from its other transform properties.
+                    if obs.obs_sceneitem_get_bounds_type(item) == obs.OBS_BOUNDS_NONE:
+                        obs.vec2_set(bounds, scale.x * (source_width - crop.right - crop.left), scale.y * (source_height - crop.bottom - crop.top))
+                        obs.obs_sceneitem_set_bounds(item, bounds)
+
                     obs.obs_sceneitem_set_bounds_type(item, obs.OBS_BOUNDS_SCALE_OUTER)
                     obs.obs_sceneitem_set_bounds_alignment(item, 0) # obs.OBS_ALIGN_CENTER doesn’t seem to be implemented.
-                    if rows:
 
-                        # Get top left corner of this caller.
-                        r = math.ceil((index + 1) / cols)
-                        c = index % cols + 1
-                        x = MARGIN_SIDES + offsetx + (width + CALLER_SPACING) * (c - 1)
-                        if r == rows:
-                            x = x + offset_last
-                        y = margin_top + offsety + (height + CALLER_SPACING) * (r - 1)
+                    # Get top left corner of this caller.
+                    r = math.ceil((index + 1) / cols)
+                    c = index % cols + 1
+                    x = MARGIN_SIDES + offsetx + (width + CALLER_SPACING) * (c - 1)
+                    if r == rows:
+                        x = x + offset_last
+                    y = margin_top + offsety + (height + CALLER_SPACING) * (r - 1)
 
-                        # Make sure the crop doesn’t overflow the item bounds.
-                        bounds = obs.vec2()
-                        obs.obs_sceneitem_get_bounds(item, bounds)
-                        aspect = bounds.x / bounds.y
-                        clipx = 0
-                        clipy = 0
-                        if aspect > CALLER_ASPECT:
-                            clipy = (height - width / aspect) / 2
-                        else:
-                            clipx = (width - height * aspect) / 2
+                    # Make sure the crop doesn’t overflow the item bounds.
+                    aspect = bounds.x / bounds.y
+                    clipx = 0
+                    clipy = 0
+                    if aspect > CALLER_ASPECT:
+                        clipy = (height - width / aspect) / 2
+                    else:
+                        clipx = (width - height * aspect) / 2
 
-                        crop = obs.obs_sceneitem_crop()
-                        crop.left = math.ceil(x + CALLER_BORDER + clipx)
-                        crop.top = math.ceil(y + CALLER_BORDER + clipy)
-                        crop.right = source_width - int(x + width - CALLER_BORDER - clipx)
-                        crop.bottom = source_height - int(y + height - CALLER_BORDER - clipy)
-                        obs.obs_sceneitem_set_crop(item, crop)
+                    crop.left = math.ceil(x + CALLER_BORDER + clipx)
+                    crop.top = math.ceil(y + CALLER_BORDER + clipy)
+                    crop.right = source_width - int(x + width - CALLER_BORDER - clipx)
+                    crop.bottom = source_height - int(y + height - CALLER_BORDER - clipy)
+                    obs.obs_sceneitem_set_crop(item, crop)
         obs.sceneitem_list_release(items)
     obs.source_list_release(scene_sources)
 
