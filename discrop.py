@@ -28,6 +28,7 @@ full_screen = False
 show_nonvideo_participants = False
 discord_source = None
 participants = ()
+myself = None
 
 
 class Client(discord.Client):
@@ -121,6 +122,7 @@ def script_update(settings): # OBS script interface.
     global show_nonvideo_participants
     global discord_source
     global participants
+    global myself
 
     while not client.is_ready():
         time.sleep(0.1)
@@ -130,6 +132,7 @@ def script_update(settings): # OBS script interface.
     obs.obs_source_release(discord_source) # Doesn’t error even if discord_source == None.
     discord_source = obs.obs_get_source_by_name(obs.obs_data_get_string(settings, 'discord_source'))
     participants = tuple(obs.obs_data_get_int(settings, f'participant{i}') for i in range(SLOTS))
+    myself = obs.obs_data_get_int(settings, 'myself')
 
 
 def script_properties(): # OBS script interface.
@@ -158,6 +161,7 @@ def script_properties(): # OBS script interface.
   <li>Open the dropdown menu below, and pick the voice channel you’re in.</strong></li>
   <li>Tick the <em>Full Screen</li> and <em>Show Non-Video Participants</em> checkboxes according to the state of your Discord call (on Discord, <em>Show Non-Video Participants</em> is located under the three dots button at the top right of the call window).</li>
   <li>Open the next dropdown menu, and pick the source that’s capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick! Moreover, the script knows which items to modify based on their source’s name alone, so please avoid changing your sources’ names to prevent unexpected behaviour.</strong></li>
+  <li>Pick yourself in the <em>Myself</em> list, so that you appear un-mirrored to the rest of the world while your video is on.</li>
   <li>Choose every participant you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
 </ol>''')
 
@@ -180,8 +184,10 @@ def script_properties(): # OBS script interface.
     obs.obs_properties_add_group(props, 'general', 'General', obs.OBS_GROUP_NORMAL, grp)
 
     grp = obs.obs_properties_create()
+    p = obs.obs_properties_add_list(grp, 'myself', 'Myself', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
+    obs.obs_property_set_long_description(p, '<p>Participant whose video should be un-mirrored (yourself).</p>')
     p = obs.obs_properties_add_button(grp, 'refresh_names', 'Refresh names', populate_participants)
-    obs.obs_property_set_long_description(p, '<p>Rebuild the participant lists below. Useful when there have been nickname changes, or someone has joined the server. Don’t worry— it won’t reset each choice, unless a selected participant left the server.</p>')
+    obs.obs_property_set_long_description(p, '<p>Rebuild the participant lists. Useful when there have been nickname changes, or someone has joined the server. Don’t worry— it won’t reset each choice, unless a selected participant left the server.</p>')
     for i in range(SLOTS):
         p = obs.obs_properties_add_list(grp, f'participant{i}', None, obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
         obs.obs_property_set_long_description(p, '<p>Participant to appear at the ' + ordinal(i + 1) + ' capture item from the top of the scene</p>')
@@ -264,9 +270,10 @@ def script_tick(seconds): # OBS script interface.
         i = 0
         for item in reversed(items):
             if obs.obs_sceneitem_get_source(item) == discord_source: # Shouldn’t be released.
+                uid = participants[i]
                 visible = True
                 try:
-                    index = people.index(participants[i])
+                    index = people.index(uid)
                 except (IndexError, ValueError):
                     visible = False
                 i += 1
@@ -309,6 +316,13 @@ def script_tick(seconds): # OBS script interface.
                     crop.right = source_width - int(x + width - CALLER_BORDER - clipx)
                     crop.bottom = source_height - int(y + height - CALLER_BORDER - clipy)
                     obs.obs_sceneitem_set_crop(item, crop)
+
+                    sx = abs(scale.x)
+                    if uid == myself and uid in client.video:
+                        sx = -sx
+                    sy = scale.y
+                    obs.vec2_set(scale, sx, sy)
+                    obs.obs_sceneitem_set_scale(item, scale)
         obs.sceneitem_list_release(items)
     obs.source_list_release(scene_sources)
 
@@ -346,15 +360,18 @@ def populate_sources(props, p=None, settings=None):
 def populate_participants(props, p=None, settings=None):
     if not client.channel:
         return False
-    for i in range(SLOTS):
-        p = obs.obs_properties_get(props, f'participant{i}')
+    values = []
+    for nick, name, disc, uid in ((x.nick, x.name, x.discriminator, x.id) for x in sorted(client.channel.guild.members, key=lambda x: x.display_name.lower() + '!') if x != client.user):
+        label = (nick or name) + ' ('
+        if nick:
+            label += name + ' '
+        label += f'#{disc})'
+        values.append((label, uid))
+    for name in ['myself'] + [f'participant{i}' for i in range(SLOTS)]:
+        p = obs.obs_properties_get(props, name)
         obs.obs_property_list_clear(p)
         obs.obs_property_list_add_int(p, '(none)', -1)
-        for nick, name, disc, uid in ((x.nick, x.name, x.discriminator, x.id) for x in sorted(client.channel.guild.members, key=lambda x: x.display_name.lower() + '!') if x != client.user):
-            label = (nick or name) + ' ('
-            if nick:
-                label += name + ' '
-            label += f'#{disc})'
+        for label, uid in values:
             obs.obs_property_list_add_int(p, label, uid)
     return True
 
