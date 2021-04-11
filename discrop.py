@@ -4,6 +4,7 @@ import os.path
 import sys
 import time
 import threading
+import webbrowser
 
 import obspython as obs
 
@@ -158,12 +159,16 @@ def script_properties(): # OBS script interface.
 
 <h3>Using this script</h3>
 <ol>
+  <li>Clicking on <em>Bot invite link</em> will take to a Discord webpage where you can invite your bot to any of your servers with the right permissions, or you can copy the URL and share it with someone who owns another server too.</li>
   <li>Open the dropdown menu below, and pick the voice channel you’re in.</strong></li>
   <li>Tick the <em>Full Screen</li> and <em>Show Non-Video Participants</em> checkboxes according to the state of your Discord call (on Discord, <em>Show Non-Video Participants</em> is located under the three dots button at the top right of the call window).</li>
   <li>Open the next dropdown menu, and pick the source that’s capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick! Moreover, the script knows which items to modify based on their source’s name alone, so please avoid changing your sources’ names to prevent unexpected behaviour.</strong></li>
   <li>Pick yourself in the <em>Myself</em> list, so that you appear un-mirrored to the rest of the world while your video is on.</li>
   <li>Choose every participant you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
 </ol>''')
+
+    p = obs.obs_properties_add_button(grp, 'bot_invite_link', 'Bot invite link', bot_invite)
+    obs.obs_property_set_long_description(p, '<p>Go to a Discord webpage that lets you invite your bot into any of your servers with the right permissions. You can share this URL with the owner of another server so they invite it for you.</p>')
 
     p = obs.obs_properties_add_list(grp, 'voice_channel', 'Voice channel', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
     obs.obs_property_set_modified_callback(p, populate_participants)
@@ -330,6 +335,12 @@ def script_tick(seconds): # OBS script interface.
 def script_unload(): # OBS script interface.
     client.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(client.close()))
     thread.join()
+
+
+def bot_invite(props, p=None, settings=None):
+    while not client.is_ready():
+        time.sleep(0.1)
+    webbrowser.open_new_tab(discord.utils.oauth_url(client.user.id, discord.Permissions(connect=True)))
 
 
 def populate_channels(props, p=None, settings=None):

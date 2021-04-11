@@ -30,9 +30,6 @@ This script only requires the [discord.py package](https://pypi.org/project/disc
 2. Go to the application’s _Bot_ section, and create a bot for it.
 3. Copy its token into a file named `.bot_token`, sitting alongside `discrop.py`.
 4. Under _Privileged Gateway Intents,_ enable the _Server Members Intent._
-5. Go to the application’s _OAuth2_ section, and under _Scopes_, select `bot`.
-6. _Bot Permissions_ should have appeared. There, under _Voice Permissions_, select _Connect._
-7. Go to the auto-generated link that appears at the bottom of the _Scopes_ box, and invite your bot to a server.
 
 
 Usage
