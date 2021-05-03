@@ -127,13 +127,19 @@ def script_update(settings): # OBS script interface.
 
     while not client.is_ready():
         time.sleep(0.1)
-    client.channel = obs.obs_data_get_int(settings, 'voice_channel')
+    try:
+        client.channel = int(obs.obs_data_get_string(settings, 'voice_channel'))
+    except ValueError:
+        pass
     full_screen = obs.obs_data_get_bool(settings, 'full_screen')
     show_nonvideo_participants = obs.obs_data_get_bool(settings, 'show_nonvideo_participants')
     obs.obs_source_release(discord_source) # Doesn’t error even if discord_source == None.
     discord_source = obs.obs_get_source_by_name(obs.obs_data_get_string(settings, 'discord_source'))
-    participants = tuple(obs.obs_data_get_int(settings, f'participant{i}') for i in range(SLOTS))
-    myself = obs.obs_data_get_int(settings, 'myself')
+    participants = tuple(int(x) if x else None for x in (obs.obs_data_get_string(settings, f'participant{i}') for i in range(SLOTS)))
+    try:
+        myself = int(obs.obs_data_get_string(settings, 'myself'))
+    except ValueError:
+        myself = None
 
 
 def script_properties(): # OBS script interface.
@@ -170,7 +176,7 @@ def script_properties(): # OBS script interface.
     p = obs.obs_properties_add_button(grp, 'bot_invite_link', 'Bot invite link', bot_invite)
     obs.obs_property_set_long_description(p, '<p>Go to a Discord webpage that lets you invite your bot into any of your servers with the right permissions. You can share this URL with the owner of another server so they invite it for you.</p>')
 
-    p = obs.obs_properties_add_list(grp, 'voice_channel', 'Voice channel', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
+    p = obs.obs_properties_add_list(grp, 'voice_channel', 'Voice channel', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
     obs.obs_property_set_modified_callback(p, populate_participants)
     obs.obs_property_set_long_description(p, '<p>Discord server and voice/video channel where the call is happening.</p>')
     p = obs.obs_properties_add_button(grp, 'refresh_channels', 'Refresh channels', populate_channels)
@@ -189,12 +195,12 @@ def script_properties(): # OBS script interface.
     obs.obs_properties_add_group(props, 'general', 'General', obs.OBS_GROUP_NORMAL, grp)
 
     grp = obs.obs_properties_create()
-    p = obs.obs_properties_add_list(grp, 'myself', 'Myself', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
+    p = obs.obs_properties_add_list(grp, 'myself', 'Myself', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
     obs.obs_property_set_long_description(p, '<p>Participant whose video should be un-mirrored (yourself).</p>')
     p = obs.obs_properties_add_button(grp, 'refresh_names', 'Refresh names', populate_participants)
     obs.obs_property_set_long_description(p, '<p>Rebuild the participant lists. Useful when there have been nickname changes, or someone has joined the server. Don’t worry— it won’t reset each choice, unless a selected participant left the server.</p>')
     for i in range(SLOTS):
-        p = obs.obs_properties_add_list(grp, f'participant{i}', None, obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
+        p = obs.obs_properties_add_list(grp, f'participant{i}', None, obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
         obs.obs_property_set_long_description(p, '<p>Participant to appear at the ' + ordinal(i + 1) + ' capture item from the top of the scene</p>')
     obs.obs_properties_add_group(props, 'participant_layout', 'Participant layout', obs.OBS_GROUP_NORMAL, grp)
 
@@ -349,7 +355,7 @@ def populate_channels(props, p=None, settings=None):
     for guild in sorted(client.guilds, key=lambda x: x.name.lower()):
         for channel in sorted(guild.channels, key=lambda x: x.position):
             if isinstance(channel, discord.VoiceChannel):
-                obs.obs_property_list_add_int(p, guild.name + ' -> ' + channel.name, channel.id)
+                obs.obs_property_list_add_string(p, guild.name + ' -> ' + channel.name, str(channel.id))
     return True
 
 
@@ -381,9 +387,9 @@ def populate_participants(props, p=None, settings=None):
     for name in ['myself'] + [f'participant{i}' for i in range(SLOTS)]:
         p = obs.obs_properties_get(props, name)
         obs.obs_property_list_clear(p)
-        obs.obs_property_list_add_int(p, '(none)', -1)
+        obs.obs_property_list_add_string(p, '(none)', '')
         for label, uid in values:
-            obs.obs_property_list_add_int(p, label, uid)
+            obs.obs_property_list_add_string(p, label, str(uid))
     return True
 
 
