@@ -27,6 +27,7 @@ client = None
 thread = None
 full_screen = False
 show_nonvideo_participants = False
+discord_source_name = None
 discord_source = None
 participants = ()
 myself = None
@@ -121,7 +122,7 @@ def script_load(settings): # OBS script interface.
 def script_update(settings): # OBS script interface.
     global full_screen
     global show_nonvideo_participants
-    global discord_source
+    global discord_source_name
     global participants
     global myself
 
@@ -133,8 +134,7 @@ def script_update(settings): # OBS script interface.
         pass
     full_screen = obs.obs_data_get_bool(settings, 'full_screen')
     show_nonvideo_participants = obs.obs_data_get_bool(settings, 'show_nonvideo_participants')
-    obs.obs_source_release(discord_source) # Doesn’t error even if discord_source == None.
-    discord_source = obs.obs_get_source_by_name(obs.obs_data_get_string(settings, 'discord_source'))
+    discord_source_name = obs.obs_data_get_string(settings, 'discord_source')
     participants = tuple(int(x) if x else None for x in (obs.obs_data_get_string(settings, f'participant{i}') for i in range(SLOTS)))
     try:
         myself = int(obs.obs_data_get_string(settings, 'myself'))
@@ -214,6 +214,11 @@ def script_properties(): # OBS script interface.
 
 
 def script_tick(seconds): # OBS script interface.
+    global discord_source
+
+    if discord_source_name != obs.obs_source_get_name(discord_source):
+        obs.obs_source_release(discord_source) # Doesn’t error even if discord_source == None.
+        discord_source = obs.obs_get_source_by_name(discord_source_name)
 
     if not client:
         return
