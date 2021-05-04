@@ -171,6 +171,7 @@ def script_properties(): # OBS script interface.
   <li>Open the next dropdown menu, and pick the source that’s capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick! Moreover, the script knows which items to modify based on their source’s name alone, so please avoid changing your sources’ names to prevent unexpected behaviour.</strong></li>
   <li>Pick yourself in the <em>Myself</em> list, so that you appear un-mirrored to the rest of the world while your video is on.</li>
   <li>Choose every participant you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
+  <li><strong>If you’re in <em>Studio Mode,</em> click on the gear icon between both views, and make sure <em>Duplicate Scene</em> is OFF!</strong></li>
 </ol>''')
 
     p = obs.obs_properties_add_button(grp, 'bot_invite_link', 'Bot invite link', bot_invite)
