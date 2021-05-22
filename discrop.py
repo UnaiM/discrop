@@ -29,6 +29,7 @@ full_screen = False
 show_nonvideo_participants = False
 discord_source_name = None
 discord_source = None
+item_right_below = False
 participants = ()
 myself = None
 
@@ -123,6 +124,7 @@ def script_update(settings): # OBS script interface.
     global full_screen
     global show_nonvideo_participants
     global discord_source_name
+    global item_right_below
     global participants
     global myself
 
@@ -135,6 +137,7 @@ def script_update(settings): # OBS script interface.
     full_screen = obs.obs_data_get_bool(settings, 'full_screen')
     show_nonvideo_participants = obs.obs_data_get_bool(settings, 'show_nonvideo_participants')
     discord_source_name = obs.obs_data_get_string(settings, 'discord_source')
+    item_right_below = obs.obs_data_get_bool(settings, 'item_right_below')
     participants = tuple(int(x) if x else None for x in (obs.obs_data_get_string(settings, f'participant{i}') for i in range(SLOTS)))
     try:
         myself = int(obs.obs_data_get_string(settings, 'myself'))
@@ -169,6 +172,7 @@ def script_properties(): # OBS script interface.
   <li>Open the dropdown menu below, and pick the voice channel you’re in.</strong></li>
   <li>Tick the <em>Full Screen</li> and <em>Show Non-Video Participants</em> checkboxes according to the state of your Discord call (on Discord, <em>Show Non-Video Participants</em> is located under the three dots button at the top right of the call window).</li>
   <li>Open the next dropdown menu, and pick the source that’s capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick! Moreover, the script knows which items to modify based on their source’s name alone, so please avoid changing your sources’ names to prevent unexpected behaviour.</strong></li>
+  <li>If <em>Show Non-Video Participants</em> is off, you can tick <em>Show/hide item right below for audio-only.</em> This requires an item right below each Discord item, which the script will show when the participant has no video, and hide otherwise.</li>
   <li>Pick yourself in the <em>Myself</em> list, so that you appear un-mirrored to the rest of the world while your video is on.</li>
   <li>Choose every participant you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
   <li><strong>If you’re in <em>Studio Mode,</em> click on the gear icon between both views, and make sure <em>Duplicate Scene</em> is OFF!</strong></li>
@@ -186,12 +190,15 @@ def script_properties(): # OBS script interface.
     p = obs.obs_properties_add_bool(grp, 'full_screen', 'Full-screen')
     obs.obs_property_set_long_description(p, '<p>Whether the Discord call window is in <em>Full Screen</em> mode</p>')
     p = obs.obs_properties_add_bool(grp, 'show_nonvideo_participants', 'Show Non-Video Participants')
+    obs.obs_property_set_modified_callback(p, show_nonvideo_participants_callback)
     obs.obs_property_set_long_description(p, '<p>Whether the Discord call window has <em>Show Non-video Participants</em> on (under the three dots button at the top right corner)</p>')
 
     p = obs.obs_properties_add_list(grp, 'discord_source', 'Discord source', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
     obs.obs_property_set_long_description(p, '<p>Source that is capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick!</strong></p>')
     p = obs.obs_properties_add_button(grp, 'refresh_sources', 'Refresh sources', populate_sources)
     obs.obs_property_set_long_description(p, '<p>Rebuild the list of sources above. Useful for when you’ve made major changes to your scenes. This won’t reset your choice, unless it’s no longer available.</p>')
+    p = obs.obs_properties_add_bool(grp, 'item_right_below', 'Show/hide item right below for audio-only')
+    obs.obs_property_set_long_description(p, '<p>Requires an item right below each Discord item, which the script will show when the participant has no video, and hide otherwise</p>')
 
     obs.obs_properties_add_group(props, 'general', 'General', obs.OBS_GROUP_NORMAL, grp)
 
@@ -285,7 +292,9 @@ def script_tick(seconds): # OBS script interface.
         scene = obs.obs_scene_from_source(scene_src) # Shouldn’t be released.
         items = obs.obs_scene_enum_items(scene)
         i = 0
+        next_vis = None
         for item in reversed(items):
+            _next_vis = None
             if obs.obs_sceneitem_get_source(item) == discord_source: # Shouldn’t be released.
                 uid = participants[i]
                 visible = True
@@ -340,6 +349,11 @@ def script_tick(seconds): # OBS script interface.
                     sy = scale.y
                     obs.vec2_set(scale, sx, sy)
                     obs.obs_sceneitem_set_scale(item, scale)
+                if not show_nonvideo_participants and item_right_below:
+                    _next_vis = uid in client.audio
+            elif next_vis is not None:
+                obs.obs_sceneitem_set_visible(item, next_vis)
+            next_vis = _next_vis
         obs.sceneitem_list_release(items)
     obs.source_list_release(scene_sources)
 
@@ -347,6 +361,11 @@ def script_tick(seconds): # OBS script interface.
 def script_unload(): # OBS script interface.
     client.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(client.close()))
     thread.join()
+
+
+def show_nonvideo_participants_callback(props, p, settings):
+    obs.obs_property_set_enabled(obs.obs_properties_get(props, 'item_right_below'), not obs.obs_data_get_bool(settings, 'show_nonvideo_participants'))
+    return True
 
 
 def bot_invite(props, p=None, settings=None):
