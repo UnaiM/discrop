@@ -25,13 +25,8 @@ CALLER_BORDER = 3 # Inwards border when caller is talking.
 
 client = None
 thread = None
-full_screen = False
-show_nonvideo_participants = False
-discord_source_name = None
+settings = obs.obs_data_create()
 discord_source = None
-item_right_below = False
-participants = ()
-myself = None
 
 
 class Client(discord.Client):
@@ -107,9 +102,11 @@ def script_description(): # OBS script interface.
     return '<p style="color: orange"><strong>CAUTION:</strong> picking a Discord source from the menu below will <strong>irreversibly</strong> modify all related items!</p>'
 
 
-def script_load(settings): # OBS script interface.
+def script_load(_settings): # OBS script interface.
     global client
     global thread
+    global settings
+    settings = _settings
 
     if asyncio.get_event_loop().is_closed():
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -120,13 +117,9 @@ def script_load(settings): # OBS script interface.
         thread.start()
 
 
-def script_update(settings): # OBS script interface.
-    global full_screen
-    global show_nonvideo_participants
-    global discord_source_name
-    global item_right_below
-    global participants
-    global myself
+def script_update(_settings): # OBS script interface.
+    global settings
+    settings = _settings
 
     while not client.is_ready():
         time.sleep(0.1)
@@ -134,15 +127,6 @@ def script_update(settings): # OBS script interface.
         client.channel = int(obs.obs_data_get_string(settings, 'voice_channel'))
     except ValueError:
         pass
-    full_screen = obs.obs_data_get_bool(settings, 'full_screen')
-    show_nonvideo_participants = obs.obs_data_get_bool(settings, 'show_nonvideo_participants')
-    discord_source_name = obs.obs_data_get_string(settings, 'discord_source')
-    item_right_below = obs.obs_data_get_bool(settings, 'item_right_below')
-    participants = tuple(int(x) if x else None for x in (obs.obs_data_get_string(settings, f'participant{i}') for i in range(SLOTS)))
-    try:
-        myself = int(obs.obs_data_get_string(settings, 'myself'))
-    except ValueError:
-        myself = None
 
 
 def script_properties(): # OBS script interface.
@@ -218,15 +202,17 @@ def script_properties(): # OBS script interface.
     populate_channels(props)
     populate_participants(props)
 
+    obs.obs_properties_apply_settings(props, settings)
     return props
 
 
 def script_tick(seconds): # OBS script interface.
     global discord_source
 
-    if discord_source_name != obs.obs_source_get_name(discord_source):
+    source_name = obs.obs_data_get_string(settings, 'discord_source')
+    if source_name != obs.obs_source_get_name(discord_source):
         obs.obs_source_release(discord_source) # Doesn’t error even if discord_source == None.
-        discord_source = obs.obs_get_source_by_name(discord_source_name)
+        discord_source = obs.obs_get_source_by_name(source_name)
 
     if not client:
         return
@@ -236,15 +222,16 @@ def script_tick(seconds): # OBS script interface.
     source_height = obs.obs_source_get_height(discord_source)
 
     margin_top = MARGIN_TOP
-    if not full_screen:
+    if not obs.obs_data_get_bool(settings, 'full_screen'):
         margin_top = margin_top + TITLE_BAR
 
     # Get Discord call layout distribution and caller size.
     people = [x for x in client.video] # Mutability and shiz.
-    if show_nonvideo_participants:
+    nonvideo = obs.obs_data_get_bool(settings, 'show_nonvideo_participants')
+    if nonvideo:
         people += client.audio
     count = len(people)
-    if count == 1 and (not client.audio or not client.video and show_nonvideo_participants):
+    if count == 1 and (not client.audio or not client.video and nonvideo):
         count = 2 # Discord adds a call to action that occupies the same space as a second caller.
     rows = None
     cols = None
@@ -296,7 +283,7 @@ def script_tick(seconds): # OBS script interface.
         for item in reversed(items):
             _next_vis = None
             if obs.obs_sceneitem_get_source(item) == discord_source: # Shouldn’t be released.
-                uid = participants[i]
+                uid = int(obs.obs_data_get_string(settings, f'participant{i}') or -1)
                 visible = True
                 try:
                     index = people.index(uid)
@@ -344,12 +331,12 @@ def script_tick(seconds): # OBS script interface.
                     obs.obs_sceneitem_set_crop(item, crop)
 
                     sx = abs(scale.x)
-                    if uid == myself and uid in client.video:
+                    if uid == int(obs.obs_data_get_string(settings, 'myself') or -1) and uid in client.video:
                         sx = -sx
                     sy = scale.y
                     obs.vec2_set(scale, sx, sy)
                     obs.obs_sceneitem_set_scale(item, scale)
-                if not show_nonvideo_participants and item_right_below:
+                if not nonvideo and obs.obs_data_get_bool(settings, 'item_right_below'):
                     _next_vis = uid in client.audio
             elif next_vis is not None:
                 obs.obs_sceneitem_set_visible(item, next_vis)
@@ -363,18 +350,18 @@ def script_unload(): # OBS script interface.
     thread.join()
 
 
-def show_nonvideo_participants_callback(props, p, settings):
-    obs.obs_property_set_enabled(obs.obs_properties_get(props, 'item_right_below'), not obs.obs_data_get_bool(settings, 'show_nonvideo_participants'))
+def show_nonvideo_participants_callback(props, p, _settings):
+    obs.obs_property_set_enabled(obs.obs_properties_get(props, 'item_right_below'), not obs.obs_data_get_bool(_settings, 'show_nonvideo_participants'))
     return True
 
 
-def bot_invite(props, p=None, settings=None):
+def bot_invite(props, p=None, _settings=None):
     while not client.is_ready():
         time.sleep(0.1)
     webbrowser.open_new_tab(discord.utils.oauth_url(client.user.id, discord.Permissions(connect=True)))
 
 
-def populate_channels(props, p=None, settings=None):
+def populate_channels(props, p=None, _settings=None):
     p = obs.obs_properties_get(props, 'voice_channel')
     obs.obs_property_list_clear(p)
     for guild in sorted(client.guilds, key=lambda x: x.name.lower()):
@@ -384,7 +371,7 @@ def populate_channels(props, p=None, settings=None):
     return True
 
 
-def populate_sources(props, p=None, settings=None):
+def populate_sources(props, p=None, _settings=None):
     p = obs.obs_properties_get(props, 'discord_source')
     obs.obs_property_list_clear(p)
     obs.obs_property_list_add_string(p, '(none)', '')
@@ -399,7 +386,7 @@ def populate_sources(props, p=None, settings=None):
     return True
 
 
-def populate_participants(props, p=None, settings=None):
+def populate_participants(props, p=None, _settings=None):
     if not client.channel:
         return False
     values = []
