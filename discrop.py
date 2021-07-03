@@ -181,8 +181,6 @@ def script_properties(): # OBS script interface.
     obs.obs_property_set_long_description(p, '<p>Source that is capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick!</strong></p>')
     p = obs.obs_properties_add_button(grp, 'refresh_sources', 'Refresh sources', populate_sources)
     obs.obs_property_set_long_description(p, '<p>Rebuild the list of sources above. Useful for when you’ve made major changes to your scenes. This won’t reset your choice, unless it’s no longer available.</p>')
-    p = obs.obs_properties_add_bool(grp, 'item_right_below', 'Show/hide item right below for audio-only')
-    obs.obs_property_set_long_description(p, '<p>Requires an item right below each Discord item, which the script will show when the participant has no video, and hide otherwise</p>')
 
     obs.obs_properties_add_group(props, 'general', 'General', obs.OBS_GROUP_NORMAL, grp)
 
@@ -195,6 +193,15 @@ def script_properties(): # OBS script interface.
         p = obs.obs_properties_add_list(grp, f'participant{i}', None, obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
         obs.obs_property_set_long_description(p, '<p>Participant to appear at the ' + ordinal(i + 1) + ' capture item from the top of the scene</p>')
     obs.obs_properties_add_group(props, 'participant_layout', 'Participant layout', obs.OBS_GROUP_NORMAL, grp)
+
+    grp = obs.obs_properties_create()
+    p = obs.obs_properties_add_text(grp, 'effect_name', 'Effect to toggle when talking', obs.OBS_TEXT_DEFAULT)
+    obs.obs_property_set_modified_callback(p, effect_name_callback)
+    obs.obs_property_set_long_description(p, '<p>Name of the effect to toggle on and off when the audio-only participant is talking</p>')
+    p = obs.obs_properties_add_list(grp, 'effect_behaviour', 'When talking, effect should turn', obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_INT)
+    obs.obs_property_list_add_int(p, 'ON', 0)
+    obs.obs_property_list_add_int(p, 'OFF', 1)
+    obs.obs_properties_add_group(props, 'item_right_below', 'Show/hide item right below for audio-only', obs.OBS_GROUP_CHECKABLE, grp)
 
     populate_sources(props)
     while not client.is_ready():
@@ -340,6 +347,8 @@ def script_tick(seconds): # OBS script interface.
                     _next_vis = uid in client.audio
             elif next_vis is not None:
                 obs.obs_sceneitem_set_visible(item, next_vis)
+                if next_vis is True:
+                    pass
             next_vis = _next_vis
         obs.sceneitem_list_release(items)
     obs.source_list_release(scene_sources)
@@ -352,6 +361,11 @@ def script_unload(): # OBS script interface.
 
 def show_nonvideo_participants_callback(props, p, _settings):
     obs.obs_property_set_enabled(obs.obs_properties_get(props, 'item_right_below'), not obs.obs_data_get_bool(_settings, 'show_nonvideo_participants'))
+    return True
+
+
+def effect_name_callback(props, p, _settings):
+    obs.obs_property_set_enabled(obs.obs_properties_get(props, 'effect_behaviour'), bool(obs.obs_data_get_string(_settings, 'effect_name')))
     return True
 
 
