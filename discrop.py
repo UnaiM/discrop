@@ -153,12 +153,12 @@ def script_properties(): # OBS script interface.
 <h3>Using this script</h3>
 <ol>
   <li>Clicking on <em>Bot invite link</em> will take to a Discord webpage where you can invite your bot to any of your servers with the right permissions, or you can copy the URL and share it with someone who owns another server too.</li>
-  <li>Open the dropdown menu below, and pick the voice channel you’re in.</strong></li>
-  <li>Tick the <em>Full Screen</li> and <em>Show Non-Video Participants</em> checkboxes according to the state of your Discord call (on Discord, <em>Show Non-Video Participants</em> is located under the three dots button at the top right of the call window).</li>
+  <li>Open the dropdown menu below, and pick the voice channel you’re in.</li>
+  <li>Tick the <em>Full Screen</em> and <em>Show Non-Video Participants</em> checkboxes according to the state of your Discord call (on Discord, <em>Show Non-Video Participants</em> is located under the three dots button at the top right of the call window).</li>
   <li>Open the next dropdown menu, and pick the source that’s capturing the Discord call. <strong>CAUTION: this will irreversibly modify all items belonging to the source you pick! Moreover, the script knows which items to modify based on their source’s name alone, so please avoid changing your sources’ names to prevent unexpected behaviour.</strong></li>
   <li>If <em>Show Non-Video Participants</em> is off, you can tick <em>Show/hide item right below for audio-only.</em> This requires an item right below each Discord item, which the script will show when the participant has no video, and hide otherwise.</li>
   <li>Pick yourself in the <em>Myself</em> list, so that you appear un-mirrored to the rest of the world while your video is on.</li>
-  <li>Choose every participant you want to appear in your scene. Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
+  <li>Choose every participant you want to appear in your scene <strong>(including yourself).</strong> Follow the same order you used with your Discord items in the <em>Sources</em> panel.</li>
   <li><strong>If you’re in <em>Studio Mode,</em> click on the gear icon between both views, and make sure <em>Duplicate Scene</em> is OFF!</strong></li>
 </ol>''')
 
